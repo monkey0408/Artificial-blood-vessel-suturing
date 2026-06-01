@@ -59,10 +59,47 @@ jobs:
         run: |
           zip -r openscad_sources.zip openscad || true
 
+      - name: Check openscad_sources.zip exists
+        id: check_zip
+        run: |
+          if [ -f openscad_sources.zip ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check mandrels.stl exists
+        id: check_mandrels
+        run: |
+          if [ -f openscad/STL/mandrels.stl ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check half_clamp.stl exists
+        id: check_half
+        run: |
+          if [ -f openscad/STL/half_clamp.stl ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check needle_clamp.stl exists
+        id: check_needle
+        run: |
+          if [ -f openscad/STL/needle_clamp.stl ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create GitHub release
         id: create_release
         uses: actions/create-release@v1
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ github.event.inputs.tag }}
           release_name: ${{ github.event.inputs.tag }}
           body: |
@@ -71,6 +108,7 @@ jobs:
           prerelease: false
 
       - name: Upload openscad_sources.zip
+        if: ${{ steps.create_release.outcome == 'success' && steps.check_zip.outputs.exists == 'true' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -78,8 +116,8 @@ jobs:
           asset_name: openscad_sources.zip
           asset_content_type: application/zip
 
-      - name: Upload mandrels.stl (if exists)
-        if: ${{ always() }}
+      - name: Upload mandrels.stl
+        if: ${{ steps.create_release.outcome == 'success' && steps.check_mandrels.outputs.exists == 'true' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -87,8 +125,8 @@ jobs:
           asset_name: mandrels.stl
           asset_content_type: application/octet-stream
 
-      - name: Upload half_clamp.stl (if exists)
-        if: ${{ always() }}
+      - name: Upload half_clamp.stl
+        if: ${{ steps.create_release.outcome == 'success' && steps.check_half.outputs.exists == 'true' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -96,8 +134,8 @@ jobs:
           asset_name: half_clamp.stl
           asset_content_type: application/octet-stream
 
-      - name: Upload needle_clamp.stl (if exists)
-        if: ${{ always() }}
+      - name: Upload needle_clamp.stl
+        if: ${{ steps.create_release.outcome == 'success' && steps.check_needle.outputs.exists == 'true' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
