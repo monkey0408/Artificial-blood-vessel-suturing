@@ -117,13 +117,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Only create a release when manually triggered to avoid token restrictions from forks/PRs
+      # 下载 build job 上传的 artifact 到当前工作区（.）
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: openscad-artifacts
+          path: .    # 将 artifact 内容解压到当前工作目录，确保 openscad_sources.zip 和 openscad/STL/*.stl 可用
+
+      # 仅在 workflow_dispatch（手动触发）时才创建 Release，避免 fork/PR 的 token 限制
       - name: Create GitHub release (manual-run only)
         id: create_release
         if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/create-release@v1
         env:
-          # Prefer RELEASE_TOKEN (a PAT you store in repo secrets) if set; otherwise fallback to GITHUB_TOKEN
+          # 推荐在仓库 Secrets 中设置 RELEASE_TOKEN（PAT）并授权 SSO（若组织需要），否则回退到默认 GITHUB_TOKEN
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.event.inputs.tag }}
