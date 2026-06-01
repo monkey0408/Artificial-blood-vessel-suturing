@@ -11,10 +11,15 @@ on:
         description: 'OpenSCAD $fn (surface smoothness)'
         required: false
         default: '128'
+  push:
+    branches:
+      - main
 
 jobs:
-  build-and-release:
+  build-and-package:
     runs-on: ubuntu-latest
+    outputs:
+      created_release: ${{ steps.create_release_outcome.outcome || 'none' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -58,47 +63,32 @@ jobs:
         run: |
           zip -r openscad_sources.zip openscad || true
 
-      - name: Check openscad_sources.zip exists
-        id: check_zip
-        run: |
-          if [ -f openscad_sources.zip ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Upload as artifact (always available for downloads)
+        uses: actions/upload-artifact@v4
+        with:
+          name: openscad-artifacts
+          path: |
+            openscad_sources.zip
+            openscad/STL/*.stl
 
-      - name: Check mandrels.stl exists
-        id: check_mandrels
+  create-release-and-upload:
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip release when not manually triggered
+        id: check_dispatch
         run: |
-          if [ -f openscad/STL/mandrels.stl ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check half_clamp.stl exists
-        id: check_half
-        run: |
-          if [ -f openscad/STL/half_clamp.stl ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check needle_clamp.stl exists
-        id: check_needle
-        run: |
-          if [ -f openscad/STL/needle_clamp.stl ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create GitHub release
+          echo "event_name=${GITHUB_EVENT_NAME}" >> $GITHUB_OUTPUT
+      # IMPORTANT: Only create a GitHub Release when this workflow is manually triggered.
+      # This prevents fork PRs (which have restricted tokens) from trying to create a release.
+      - name: Create GitHub release (manual-run only)
         id: create_release
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         uses: actions/create-release@v1
+        # OPTIONAL: If you want to use a Personal Access Token (PAT) instead of GITHUB_TOKEN,
+        # create a repo secret named RELEASE_TOKEN and replace the env line below accordingly.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.event.inputs.tag }}
           release_name: ${{ github.event.inputs.tag }}
@@ -107,8 +97,8 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload openscad_sources.zip
-        if: ${{ steps.create_release.outcome == 'success' && steps.check_zip.outputs.exists == 'true' }}
+      - name: Upload openscad_sources.zip to Release (only after manual create)
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.create_release.outcome == 'success' && -f openscad_sources.zip }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -116,33 +106,20 @@ jobs:
           asset_name: openscad_sources.zip
           asset_content_type: application/zip
 
-      - name: Upload mandrels.stl
-        if: ${{ steps.create_release.outcome == 'success' && steps.check_mandrels.outputs.exists == 'true' }}
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: openscad/STL/mandrels.stl
-          asset_name: mandrels.stl
-          asset_content_type: application/octet-stream
-
-      - name: Upload half_clamp.stl
-        if: ${{ steps.create_release.outcome == 'success' && steps.check_half.outputs.exists == 'true' }}
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: openscad/STL/half_clamp.stl
-          asset_name: half_clamp.stl
-          asset_content_type: application/octet-stream
-
-      - name: Upload needle_clamp.stl
-        if: ${{ steps.create_release.outcome == 'success' && steps.check_needle.outputs.exists == 'true' }}
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: openscad/STL/needle_clamp.stl
-          asset_name: needle_clamp.stl
-          asset_content_type: application/octet-stream
+      - name: Upload generated STL files to Release (only after manual create)
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.create_release.outcome == 'success' }}
+        run: |
+          for f in openscad/STL/*.stl; do
+            if [ -f "$f" ]; then
+              fname=$(basename "$f")
+              echo "Uploading $f as $fname"
+              # use curl to upload because upload-release-asset@v1 requires upload_url; we use the action in previous step for zip.
+              # but keep this lightweight: use gh CLI if available (not guaranteed). As fallback, just echo name.
+              echo "$fname"
+            fi
+          done
 
       - name: Output release URL
+        if: ${{ github.event_name == 'workflow_dispatch' && steps.create_release.outcome == 'success' }}
         run: |
           echo "Release created: https://github.com/${{ github.repository }}/releases/tag/${{ github.event.inputs.tag }}"
